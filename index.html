@@ -1,14 +1,219 @@
-<!DOCTYPE html>
+<! DOCTYPE html>
 <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>入退室監視</title>
+        <style>
+            body {
+                background-color: #f4f4f9;
+                margin: 0;
+                padding: 0;
+            }
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Github Pages公開練習</title>
-</head>
 
-<body>
-    <h1>こんにちは</h1>
-</body>
+            .manage{
+                background-color: #fff;
+                position: relative;
+                top: 5px;
+                padding-left: 1em;
+                padding-right: 1em;
+                padding-top: 5px;
+                padding-bottom: 40px;                
+                border: solid 2px #fff;
+                border-radius: 5px;
+                max-width: 50%;
+                height: 90%;
+                min-height: 300px;
+                margin: auto;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                text-align: center;
+            }
 
+            .border{
+                position: relative;
+                text-align: center;
+                font-size: 40px;
+                color: #aa21aa;
+                font-family: "MS Gothic";
+            }
+
+            .border:before{
+                content: '';
+                position: absolute;
+                left: 50%;
+                bottom: -10px;
+                width: 30px;
+                border-bottom: solid 2px #aa21aa;
+                transform: translateX(-50%);
+                animation: border_anim 1s linear forwards; 
+            }
+
+            @keyframes border_anim{
+                0%{
+                    width: 0%;
+                }
+                100%{
+                    width: 100%;
+                }
+            }
+
+            .h2{
+                text-align: center;
+            }
+            
+            .resultlist{
+                padding-top: 10px;
+                padding-bottom: 10px;
+                height: 63%;
+                border: solid 2px #000;
+                overflow-x : auto;
+            }
+
+            button{
+                margin-top: 20px;
+            }
+
+            .clickbtn{
+                color: #fff;
+                font-size: 20px;
+                border: none;
+                border-radius: 50px;
+                width: 20%;
+                height: 50px;
+                cursor: pointer;
+                background-color: #e3364a;
+                box-shadow: 0 5px 0#ca1c30;
+                transition: .3s;
+            }
+
+            button:hover{
+            box-shadow: none;
+            transform: translateY(5px);
+        }
+
+        p{
+            text-align: center;
+        }
+
+        </style>
+    </head>
+    <body>
+        <div class="manage">
+            <div class="h1">
+                <h1 class="border">入退室管理</h1>
+            </div>
+
+            <div class="button">
+                <button onclick="startSerial()" class="clickbtn">接続</button>
+                <button onclick="stopSerial()" class="clickbtn">切断</button>
+            </div>
+
+            <div class="a">
+                <h2 class="h2">現在の入退出状況</h2>
+            </div>
+            <!--このdivの中に入退出状況を記述-->
+            <div class="resultlist" id="deviceStatus">
+            </div>
+        </div>
+
+        <script>
+
+            let stopFlag = false;
+            let port;
+            let connectionCount = 0;  // 接続回数カウント
+
+            // 各デバイスの入室・退室状況を格納するオブジェクト
+            const deviceData = {};
+
+            // 入室人数、退室人数を表示する要素を取得
+            const deviceStatusElement = document.getElementById('deviceStatus');
+
+            // デバイス名の例（複数）
+            const deviceNames = ['ss', 'いたのiPhone', 'deviceA', 'deviceB']; // 例として複数のデバイス名を設定
+
+            async function startSerial() {
+                try {
+                    console.log("INFO: 接続が確立します...");
+                    stopFlag = false;
+                    port = await navigator.serial.requestPort();
+                    await port.open({ baudRate: 115200 });
+                    console.log("INFO: ポートを開きました");
+
+                    const reader = port.readable.getReader();
+                    try {
+                        connectionCount++;  // 接続回数を増やす
+                        console.log("接続回数:", connectionCount);
+
+                        // デバイス名を受信し、各デバイスに対応する入室・退室判定を行う
+                        while (!stopFlag) {
+                            const { value, done } = await reader.read();
+                            if (done) {
+                                console.log("INFO: 読込モード終了");
+                                break;
+                            }
+                            const inputValue = new TextDecoder().decode(value);
+                            console.log("受信データ:", inputValue);
+
+                            // デバイス名がdeviceNamesに含まれている場合
+                            deviceNames.forEach(deviceName => {
+                                if (inputValue.includes(deviceName)) {
+                                    // 各デバイスごとの接続回数カウント
+                                    if (!deviceData[deviceName]) {
+                                        deviceData[deviceName] = { count: 0, entry: 0, exit: 0 };
+                                    }
+                                    deviceData[deviceName].count++;
+
+                                    // 奇数回の接続で入室、偶数回の接続で退室
+                                    if (deviceData[deviceName].count % 2 !== 0) {
+                                        deviceData[deviceName].entry++;
+                                        console.log(`${deviceName} 入室`);
+                                    } else {
+                                        deviceData[deviceName].exit++;
+                                        console.log(`${deviceName} 退室`);
+                                    }
+
+                                    // 入室と退室の表示を更新
+                                    updateDeviceStatus();
+                                }
+                            });
+                        }
+                    } catch (error) {
+                        console.error("ERROR: 読み取り中にエラー発生", error);
+                    } finally {
+                        reader.releaseLock();
+                    }
+                } catch (error) {
+                    console.error("ERROR: ポートの接続に失敗しました", error);
+                }
+            }
+
+            async function stopSerial() {
+                stopFlag = true;
+                if (port) {
+                    try {
+                        await port.close();
+                        console.log("INFO: ポートを閉じました");
+                    } catch (error) {
+                        console.error("ERROR: ポートの切断に失敗しました", error);
+                    }
+                }
+            }
+
+            // デバイスごとの入室・退室状況を表示する関数
+            function updateDeviceStatus() {
+                deviceStatusElement.innerHTML = ''; // 既存の内容をクリア
+                deviceNames.forEach(deviceName => {
+                    if (deviceData[deviceName]) {
+                        const statusHTML = `
+                            <p>${deviceName}:
+                                入室: ${deviceData[deviceName].entry}, 退室: ${deviceData[deviceName].exit}, 接続回数: ${deviceData[deviceName].count}
+                            </p>
+                        `;
+                        deviceStatusElement.innerHTML += statusHTML;
+                    }
+                });
+            }
+        </script>
+    </body>
 </html>
